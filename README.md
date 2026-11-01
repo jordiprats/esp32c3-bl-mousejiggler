@@ -11,7 +11,7 @@ Optionally you can impersonate a vendor product locally via an `config.local.h` 
 - **Connected:** moves the mouse in a repeating super-cycle of patterns (**box → diagonal → box → other diagonal → box**, 16 moves total, zero net drift). Each movement is spaced **~10 s apart +/-10 s** (0–20 s delay). The alternating diagonals break the statistical regularity of a pure square pattern.  
   After **each individual move** there's a **~10 % chance to pause for 10–100 s** – the pause can happen at any point in the pattern.
 
-- **Battery simulation:** on first boot it picks a random battery level between **60–100 %**, then drops **1 % on a non-linear discharge curve** (floor at **3 %**). The level is reported over BLE so the host OS can read it.
+- **Battery simulation:** on first boot it picks a random battery level between **60–100 %**, then drops **1 % (or 2 % if the chip is heating up) on a non-linear discharge curve** (floor at **3 %**). The level is reported over BLE so the host OS can read it.
 
   | Level      | Drain rate       |
   |------------|------------------|
@@ -20,7 +20,10 @@ Optionally you can impersonate a vendor product locally via an `config.local.h` 
   | 30–11 %    | 1 % / 2 h       |
   | 10–3 %     | 1 % / 1 h       |
 
-  Random **0/-1 % fluctuations** occur once per drain step (same interval) to mimic noisy battery readings without outweighing the drain.
+  The chip's internal temperature sensor is read each cycle. If the chip is hotter than the last drain, the battery drops an extra 1 % (simulating heat stress on cells).  
+  Random **-1 % fluctuations** occur once per drain step (same interval) – they never increase the level.
+
+  Special behavior at **100 %**: the first drop to 99 % happens after a **random 10–20 minutes** (simulating a full battery that briefly stays at 100 %). After that, the normal drain schedule takes over.
 
 - **Deep sleep persistence:** battery level survives deep sleep, if the saved level is **below 15 %** on boot, a fresh random value is chosen instead.
 - **Disconnected:** after **5 minutes** without a connection the device enters **deep sleep for 30 seconds**, then wakes up and advertises again. This saves power when not in use.
@@ -34,15 +37,17 @@ Optionally you can impersonate a vendor product locally via an `config.local.h` 
 
 ```
 ├── lib/mousejiggler/
-│   ├── config.h                Tunable constants (battery, timing, deep sleep)
-│   ├── battery.h/.cpp          Battery simulation logic (drain, fluctuations)
+│   ├── config.h                Tunable constants (battery, timing, deep sleep, CPU)
+│   ├── battery.h/.cpp          Battery simulation (drain, fluctuations, temp)
 │   └── timing.h/.cpp           Movement pattern generation & delays
 ├── src/
-│   ├── config.local.h          Local overrides
+│   ├── config.local.h          Local overrides (gitignored)
 │   ├── config.local.h.example  Template for BLE identity override
 │   └── main.cpp                BLE integration & setup
 ├── test/
 │   └── test_all.cpp            15 Unity tests
+├── .github/workflows/
+│   └── test.yml                CI: runs tests on push/PR
 ├── platformio.ini
 └── README.md
 ```
@@ -95,9 +100,13 @@ pio test --environment test
 
 This compiles `battery.cpp` and `timing.cpp` with the native compiler and runs 15 Unity tests – no hardware needed.
 
+## CI
+
+A GitHub Actions workflow (`.github/workflows/test.yml`) runs the unit tests automatically on every push and pull request.
+
 ## BLE identity
 
-The device advertises as **"ESP32 Mouse"** by default. If you want to impersonate a vendor product (e.g. "MX Master 4" / "Logitech") for better compatibility, create a **local-only** override file:
+The device advertises as **"ESP32 Mouse"** by default. If you want to use a custom vendor product name for better compatibility, create a **local-only** override file:
 
 1. Copy `src/config.local.h.example` to `src/config.local.h`
 2. Edit the strings
@@ -111,10 +120,11 @@ Key constants are in `lib/mousejiggler/config.h`:
 
 | Constant               | Default   | Description                         |
 |------------------------|-----------|-------------------------------------|
-| `DISCONNECT_TIMEOUT`   | 300 000 ms (5 min) | Idle before deep sleep   |
+| `DISCONNECT_TIMEOUT`   | 300 s (5 min) | Idle before deep sleep           |
 | `DEEP_SLEEP_US`        | 30 s      | Wake interval when sleeping         |
+| `CPU_FREQ_MHZ`         | 80        | CPU frequency (MHz) – keeps PLL active for BT |
 | Battery floor          | 3 %       | Never drain below this              |
-| Movement interval      | ~10 s     | Average delay between moves (+/-10 s) |
+| Movement delay         | 0–20 s    | Jittered delay between moves        |
 | Idle pause             | 10 %      | Chance to pause 10–100 s after any move |
 
 The drain rate is **dynamic** – see the table above.

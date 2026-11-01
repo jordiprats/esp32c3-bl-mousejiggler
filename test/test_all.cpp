@@ -39,7 +39,7 @@ void test_drain_high_band(void) {
   BatterySimulator bat(testRng);
   bat.init(95, true);
   bat.setLastFluctuation(DRAIN_6H + 1);
-  bat.update(DRAIN_6H + 1);
+  bat.update(DRAIN_6H + 1, -1.0f);
   TEST_ASSERT_EQUAL(94, bat.level());
 }
 
@@ -47,7 +47,7 @@ void test_drain_mid_band(void) {
   BatterySimulator bat(testRng);
   bat.init(50, true);
   bat.setLastFluctuation(DRAIN_4H + 1);
-  bat.update(DRAIN_4H + 1);
+  bat.update(DRAIN_4H + 1, -1.0f);
   TEST_ASSERT_EQUAL(49, bat.level());
 }
 
@@ -55,7 +55,7 @@ void test_drain_low_band(void) {
   BatterySimulator bat(testRng);
   bat.init(15, true);
   bat.setLastFluctuation(DRAIN_2H + 1);
-  bat.update(DRAIN_2H + 1);
+  bat.update(DRAIN_2H + 1, -1.0f);
   TEST_ASSERT_EQUAL(14, bat.level());
 }
 
@@ -64,8 +64,29 @@ void test_drain_critical_band(void) {
   bat.init(20, true);
   bat.setLevel(8);
   bat.setLastFluctuation(DRAIN_1H + 1);
-  bat.update(DRAIN_1H + 1);
+  bat.update(DRAIN_1H + 1, -1.0f);
   TEST_ASSERT_EQUAL(7, bat.level());
+}
+
+void test_first_drop_from_100(void) {
+  BatterySimulator bat(testRng);
+  bat.init(100, true);
+  TEST_ASSERT_EQUAL(100, bat.level());
+
+  // firstDropInterval_ is random (10-20 min). Wait DRAIN_FIRST_DROP_MAX
+  // to guarantee it fires.
+  unsigned long t = DRAIN_FIRST_DROP_MAX + 1;
+  bat.setLastDrop(0);
+  bat.setLastFluctuation(t);
+  bat.update(t, -1.0f);
+  TEST_ASSERT_EQUAL(99, bat.level());
+
+  // After the first drop, the special interval is cleared;
+  // next drop uses the normal band interval (DRAIN_6H for >80 %)
+  bat.setLastDrop(t);
+  bat.setLastFluctuation(t + DRAIN_6H + 1);
+  bat.update(t + DRAIN_6H + 1, -1.0f);
+  TEST_ASSERT_EQUAL(98, bat.level());
 }
 
 void test_drain_stops_at_floor(void) {
@@ -73,7 +94,7 @@ void test_drain_stops_at_floor(void) {
   bat.init(20, true);
   bat.setLevel(3);
   bat.setLastFluctuation(DRAIN_1H + 1);
-  bat.update(DRAIN_1H + 1);
+  bat.update(DRAIN_1H + 1, -1.0f);
   TEST_ASSERT_EQUAL(3, bat.level());
 }
 
@@ -81,7 +102,7 @@ void test_fluctuation_changes_level(void) {
   BatterySimulator bat(testRng);
   bat.init(50, true);                         // getDropInterval() → DRAIN_4H
   bat.setLastDrop(DRAIN_4H + 1);              // keep drain from firing
-  bat.update(DRAIN_4H + 1);                   // triggers fluctuation
+  bat.update(DRAIN_4H + 1, -1.0f);                   // triggers fluctuation
   uint8_t lvl = bat.level();
   TEST_ASSERT(lvl == 49 || lvl == 50);
 }
@@ -92,7 +113,7 @@ void test_fluctuation_clamps(void) {
   bat.setLevel(3);
   bat.setLastDrop(DRAIN_1H + 1);              // keep drain from firing
   g_rng_counter = 12345;
-  bat.update(DRAIN_1H + 1);                   // triggers fluctuation
+  bat.update(DRAIN_1H + 1, -1.0f);                   // triggers fluctuation
   TEST_ASSERT(bat.level() >= 3);
 }
 
@@ -162,6 +183,7 @@ int main(void) {
   RUN_TEST(test_drain_mid_band);
   RUN_TEST(test_drain_low_band);
   RUN_TEST(test_drain_critical_band);
+  RUN_TEST(test_first_drop_from_100);
   RUN_TEST(test_drain_stops_at_floor);
   RUN_TEST(test_fluctuation_changes_level);
   RUN_TEST(test_fluctuation_clamps);
